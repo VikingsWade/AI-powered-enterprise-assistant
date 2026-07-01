@@ -87,7 +87,30 @@ def get_employee_info(name: str = "", employee_id: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tool 3: Generate a simple report
+# Tool 3: List employees (optionally filtered by department)
+# ---------------------------------------------------------------------------
+def list_employees(department: str = "") -> dict:
+    employees = _load_json(EMPLOYEES_PATH)
+    if department:
+        dept_lower = department.lower().strip()
+        employees = [e for e in employees if dept_lower in e["department"].lower()]
+
+    return {
+        "count": len(employees),
+        "employees": [
+            {
+                "name": e["name"],
+                "title": e["title"],
+                "department": e["department"],
+                "manager": e.get("manager", ""),
+            }
+            for e in employees
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool 4: Generate a simple report
 # ---------------------------------------------------------------------------
 def generate_report(department: str = "") -> dict:
     employees = _load_json(EMPLOYEES_PATH)
@@ -126,6 +149,7 @@ def generate_report(department: str = "") -> dict:
 TOOL_FUNCTIONS = {
     "create_ticket": create_ticket,
     "get_employee_info": get_employee_info,
+    "list_employees": list_employees,
     "generate_report": generate_report,
 }
 

@@ -45,7 +45,7 @@ import os
 import re
 import traceback
 
-from app.tools import execute_tool, get_employee_info
+from app.tools import execute_tool, get_employee_info, list_employees
 from app.memory import memory
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
@@ -55,7 +55,8 @@ SYSTEM_PROMPT = """You are an internal enterprise assistant.
 You can answer general questions and, when appropriate, take one of these
 business actions using the tools available to you:
   - create_ticket: file an IT/HR/ops support ticket
-  - get_employee_info: look up an employee's contact/department info
+  - get_employee_info: look up ONE specific employee's contact/department/manager info
+  - list_employees: list ALL employees, optionally filtered by department
   - generate_report: produce a headcount / ticket summary report
 
 Rules:
@@ -102,6 +103,22 @@ TOOL_SPECS = [
             "properties": {
                 "name": {"type": "string", "description": "Employee's full or partial name."},
                 "employee_id": {"type": "string", "description": "Employee id, e.g. E101."},
+            },
+        },
+    },
+    {
+        "name": "list_employees",
+        "description": "List all employees, optionally filtered by department. Use this "
+        "when the user asks to see/list all employees, or all employees in a department "
+        "(e.g. 'list all employees', 'who works in Sales'). Do NOT use this for a single "
+        "named person - use get_employee_info for that.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "department": {
+                    "type": "string",
+                    "description": "Department to filter by, e.g. 'Engineering'. Leave blank to list everyone.",
+                }
             },
         },
     },
@@ -153,7 +170,9 @@ class AssistantEngine:
 
                 self.gemini_client = genai.Client(api_key=gemini_key)
                 self.gemini_tools = [types.Tool(function_declarations=GEMINI_FUNCTION_DECLARATIONS)]
-            except Exception:
+            except Exception as e:
+                print(f"[startup] Gemini client init failed: {e}")
+                traceback.print_exc()
                 self.gemini_client = None
                 self.gemini_tools = None
 
@@ -164,7 +183,9 @@ class AssistantEngine:
                 import anthropic
 
                 self.anthropic_client = anthropic.Anthropic(api_key=anthropic_key)
-            except Exception:
+            except Exception as e:
+                print(f"[startup] Anthropic client init failed: {e}")
+                traceback.print_exc()
                 self.anthropic_client = None
 
     @property
@@ -350,10 +371,13 @@ class AssistantEngine:
 
         ticket_keywords = ["ticket", "broken", "broke", "not working", "issue", "problem", "crash",
                             "crashed", "outage", "down", "error", "help me fix", "vpn", "access"]
-        employee_keywords = ["employee", "who is", "contact", "phone number", "email of",
-                              "manager of", "department of", "reach", "tell me about",
+        list_keywords = ["list all", "list employees", "all employees", "every employee",
+                          "who works in", "show me all", "how many employees", "employee list"]
+        employee_keywords = ["employee", "who is", "contact", "phone", "email",
+                              "manager", "department of", "reach", "tell me about",
                               "info about", "information about", "details about",
-                              "email address", "his email", "her email", "his phone", "her phone"]
+                              "his email", "her email", "his phone", "her phone",
+                              "title of", "location of", "who works"]
         report_keywords = ["report", "summary", "headcount", "how many employees", "stats", "statistics"]
 
         if any(k in q_lower for k in report_keywords):
@@ -366,6 +390,15 @@ class AssistantEngine:
                 f"{action_result['employee_count']} employees, "
                 f"{action_result['open_tickets']} open ticket(s) out of {action_result['total_tickets']} total."
             )
+
+        elif any(k in q_lower for k in list_keywords):
+            dept_match = re.search(r"(?:in|for)\s+([A-Za-z ]+?)(?:\s+department)?[\?\.]?$", q, re.IGNORECASE)
+            department = dept_match.group(1).strip() if dept_match else ""
+            action_taken = "list_employees"
+            action_result = list_employees(department=department)
+            names = ", ".join(f"{e['name']} ({e['title']})" for e in action_result["employees"][:15])
+            scope = f" in {department}" if department else ""
+            answer = f"There are {action_result['count']} employee(s){scope}: {names}."
 
         elif any(k in q_lower for k in employee_keywords) or self._has_unresolved_pronoun(q_lower):
             name = self._extract_name(q)
@@ -380,10 +413,17 @@ class AssistantEngine:
             if action_result.get("found"):
                 emp = action_result["employee"]
                 self._last_employee_by_session[session_id] = emp["name"]
-                answer = (
-                    f"{emp['name']} is a {emp['title']} in {emp['department']}. "
-                    f"Email: {emp['email']}, Phone: {emp['phone']}, Location: {emp['location']}."
+                asking_manager_only = "manager" in q_lower and not any(
+                    w in q_lower for w in ["email", "phone", "contact", "location", "title"]
                 )
+                if asking_manager_only:
+                    answer = f"{emp['name']}'s manager is {emp.get('manager', 'not on file')}."
+                else:
+                    answer = (
+                        f"{emp['name']} is a {emp['title']} in {emp['department']}, "
+                        f"reporting to {emp.get('manager', 'N/A')}. "
+                        f"Email: {emp['email']}, Phone: {emp['phone']}, Location: {emp['location']}."
+                    )
             else:
                 answer = (
                     f"I couldn't confidently identify which employee you mean from "
