@@ -1,82 +1,82 @@
 [
   {
     "id": "E101",
-    "name": "John Smith",
+    "name": "Smith Patel",
     "department": "Engineering",
     "title": "Senior Backend Engineer",
-    "email": "john.smith@acmecorp.com",
-    "phone": "+1-415-555-0192",
+    "email": "smith.patel@enterpriseai.com",
+    "phone": "+91-678-555-0192",
     "manager": "Priya Nair",
-    "location": "Remote - US"
+    "location": "Mumbai, India"
   },
   {
     "id": "E102",
     "name": "Priya Nair",
     "department": "Engineering",
     "title": "Engineering Manager",
-    "email": "priya.nair@acmecorp.com",
-    "phone": "+1-415-555-0134",
-    "manager": "David Chen",
-    "location": "San Francisco, CA"
+    "email": "priya.nair@enterpriseai.com",
+    "phone": "+91-987-555-0134",
+    "manager": "Varun Dhavan",
+    "location": "Delhi, India"
   },
   {
     "id": "E103",
     "name": "Aisha Khan",
     "department": "Human Resources",
     "title": "HR Business Partner",
-    "email": "aisha.khan@acmecorp.com",
-    "phone": "+1-415-555-0177",
-    "manager": "David Chen",
-    "location": "New York, NY"
+    "email": "aisha.khan@enterpriseai.com",
+    "phone": "+91-415-555-0177",
+    "manager": "Varun Dhavan",
+    "location": "Banglore, India"
   },
   {
     "id": "E104",
-    "name": "Miguel Torres",
+    "name": "Piyush Chawla",
     "department": "Sales",
     "title": "Account Executive",
-    "email": "miguel.torres@acmecorp.com",
-    "phone": "+1-415-555-0166",
-    "manager": "Sara Lopez",
-    "location": "Austin, TX"
+    "email": "piyush.chawla@enterpriseai.com",
+    "phone": "+91-967-555-0166",
+    "manager": "Amir Khan",
+    "location": "Mumbai, India"
   },
   {
     "id": "E105",
-    "name": "Sara Lopez",
+    "name": "Amir Khan",
     "department": "Sales",
     "title": "Sales Director",
-    "email": "sara.lopez@acmecorp.com",
-    "phone": "+1-415-555-0155",
-    "manager": "David Chen",
-    "location": "Austin, TX"
+    "email": "amir.khan@enterpriseai.com",
+    "phone": "+91-981-555-0155",
+    "manager": "Varun Dhavan",
+    "location": "Mumbai, India"
   },
   {
     "id": "E106",
-    "name": "David Chen",
+    "name": "Varun Dhavan",
     "department": "Executive",
     "title": "VP of Operations",
-    "email": "david.chen@acmecorp.com",
-    "phone": "+1-415-555-0111",
+    "email": "varun.dhavan@enterpriseai.com",
+    "phone": "+91-934-555-0111",
     "manager": null,
-    "location": "San Francisco, CA"
+    "location": "Mumbai, India"
   },
   {
     "id": "E107",
-    "name": "Emily Wong",
+    "name": "Raj Tripathi",
     "department": "IT Support",
     "title": "IT Support Specialist",
-    "email": "emily.wong@acmecorp.com",
-    "phone": "+1-415-555-0188",
-    "manager": "David Chen",
-    "location": "Remote - US"
+    "email": "raj.tripathi@enterpriseai.com",
+    "phone": "+91-678-555-0188",
+    "manager": "Priya Nair",
+    "location": "Mumbai, India"
   },
   {
     "id": "E108",
     "name": "Rahul Verma",
     "department": "Finance",
     "title": "Financial Analyst",
-    "email": "rahul.verma@acmecorp.com",
-    "phone": "+1-415-555-0199",
-    "manager": "David Chen",
+    "email": "rahul.verma@enterpriseai.com",
+    "phone": "+91-915-555-0199",
+    "manager": "Varun Dhavan",
     "location": "Mumbai, India"
   }
 ]

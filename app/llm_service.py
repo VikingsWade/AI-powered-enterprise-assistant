@@ -393,15 +393,27 @@ class AssistantEngine:
                               "title of", "location of", "who works"]
         report_keywords = ["report", "summary", "headcount", "how many employees", "stats", "statistics"]
 
-        # Checked FIRST and specifically: "reports to" / "direct reports" contains the
-        # substring "report", so it must be intercepted before the generic report_keywords
-        # check below, or it wrongly triggers a company-wide report instead of a lookup.
-        reports_to_match = re.search(
-            r"(?:reports?\s+to|direct\s+reports\s+of|who\s+works\s+for)\s+([A-Za-z]+(?:\s[A-Za-z]+)?)",
-            q, re.IGNORECASE,
-        )
-        if reports_to_match:
-            manager_name = reports_to_match.group(1).strip()
+        # Checked FIRST and specifically: phrases like "reports to X", "under X",
+        # "X's team" all contain or imply "report"/generic wording that would
+        # otherwise wrongly trigger the generic company-wide report_keywords branch
+        # below - so any manager-scoped phrasing must be intercepted here first.
+        reports_to_patterns = [
+            r"reports?\s+to\s+([A-Za-z]+(?:\s[A-Za-z]+)?)",
+            r"direct\s+reports\s+of\s+([A-Za-z]+(?:\s[A-Za-z]+)?)",
+            r"who\s+works\s+for\s+([A-Za-z]+(?:\s[A-Za-z]+)?)",
+            r"(?:working\s+)?under\s+([A-Za-z]+(?:\s[A-Za-z]+)?)(?:'s)?",
+            r"on\s+([A-Za-z]+(?:\s[A-Za-z]+)?)'s\s+team",
+            r"([A-Za-z]+(?:\s[A-Za-z]+)?)'s\s+team",
+            r"([A-Za-z]+(?:\s[A-Za-z]+)?)'s\s+direct\s+reports",
+        ]
+        manager_name = None
+        for pattern in reports_to_patterns:
+            m = re.search(pattern, q, re.IGNORECASE)
+            if m:
+                manager_name = m.group(1).strip()
+                break
+
+        if manager_name:
             action_taken = "get_direct_reports"
             action_result = execute_tool("get_direct_reports", {"manager_name": manager_name})
             if action_result.get("found"):
