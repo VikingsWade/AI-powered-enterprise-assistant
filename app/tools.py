@@ -110,7 +110,37 @@ def list_employees(department: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Tool 4: Generate a simple report
+# Tool 4: Find an employee's direct reports
+# ---------------------------------------------------------------------------
+def get_direct_reports(manager_name: str = "") -> dict:
+    if not manager_name:
+        return {"found": False, "message": "No manager name provided."}
+
+    employees = _load_json(EMPLOYEES_PATH)
+    name_lower = manager_name.lower().strip()
+
+    matches = [e for e in employees if name_lower == e["name"].lower() or name_lower in e["name"].lower()]
+    if not matches:
+        close = get_close_matches(manager_name, [e["name"] for e in employees], n=1, cutoff=0.6)
+        if close:
+            matches = [e for e in employees if e["name"] == close[0]]
+
+    if not matches:
+        return {"found": False, "message": f"No employee found matching '{manager_name}'."}
+
+    manager = matches[0]
+    reports = [e for e in employees if (e.get("manager") or "").lower() == manager["name"].lower()]
+
+    return {
+        "found": True,
+        "manager": manager["name"],
+        "direct_report_count": len(reports),
+        "direct_reports": [{"name": e["name"], "title": e["title"]} for e in reports],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool 5: Generate a simple report
 # ---------------------------------------------------------------------------
 def generate_report(department: str = "") -> dict:
     employees = _load_json(EMPLOYEES_PATH)
@@ -150,6 +180,7 @@ TOOL_FUNCTIONS = {
     "create_ticket": create_ticket,
     "get_employee_info": get_employee_info,
     "list_employees": list_employees,
+    "get_direct_reports": get_direct_reports,
     "generate_report": generate_report,
 }
 

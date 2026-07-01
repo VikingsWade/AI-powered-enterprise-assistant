@@ -24,16 +24,16 @@ FastAPI (app/main.py)
 AssistantEngine.ask()  (app/llm_service.py)
   │  2. load last N turns from ConversationMemory (app/memory.py)
   │
-  ├── 1. PRIMARY: If GEMINI_API_KEY set ────────────────────────────┐
-  │      Gemini (gemini-2.5-flash, google-genai SDK) + 3 tool schemas│
-  │      (create_ticket / get_employee_info / generate_report)       │
-  │      Model decides: answer directly, ask a clarifying            │
-  │      question, or call a tool with structured arguments.         │
-  │      -> execute_tool() runs it against mock JSON data             │
-  │      -> tool result sent back to Gemini to compose final reply   │
+  ├── 1. PRIMARY: If GEMINI_API_KEY set ───────────────────────────────┐
+  │      Gemini (gemini-2.5-flash, google-genai SDK) + 3 tool schemas  │
+  │      (create_ticket / get_employee_info / generate_report)         │
+  │      Model decides: answer directly, ask a clarifying              │
+  │      question, or call a tool with structured arguments.           │
+  │      -> execute_tool() runs it against mock JSON data              │
+  │      -> tool result sent back to Gemini to compose final reply     │
   │                                                                    │
-  ├── 2. SECONDARY: If Gemini absent/fails, and ANTHROPIC_API_KEY set─┤
-  │      Same flow via Claude (claude-sonnet-4-6), same tool schemas  │
+  ├── 2. SECONDARY: If Gemini absent/fails, and ANTHROPIC_API_KEY set─ ┤
+  │      Same flow via Claude (claude-sonnet-4-6), same tool schemas   │
   │                                                                    │
   └── 3. TERTIARY: If neither LLM reachable ───────────────────────────┘
          rule-based fallback: keyword intent classification +
@@ -45,7 +45,8 @@ Response: { answer, action_taken, action_result, mode, provider, session_id }
 
 **Business actions / mock data** (`app/tools.py`, `data/*.json`):
 - `create_ticket(subject, description, priority, requested_by)` — appends to `data/tickets.json`, returns a generated ticket ID.
-- `get_employee_info(name | employee_id)` — looks up `data/employees.json` (exact, substring, and fuzzy match).
+- `get_employee_info(name | employee_id)` — looks up `data/employees.json` (exact, substring, and fuzzy match), returns full profile including manager.
+- `list_employees(department?)` — lists all employees, optionally scoped to one department.
 - `generate_report(department?)` — aggregates headcount and ticket stats from the same mock data.
 
 ## 2. The mandatory "real engineering improvement": API / Tool Calling

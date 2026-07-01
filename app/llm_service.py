@@ -45,7 +45,7 @@ import os
 import re
 import traceback
 
-from app.tools import execute_tool, get_employee_info, list_employees
+from app.tools import execute_tool, get_employee_info, list_employees, get_direct_reports
 from app.memory import memory
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
@@ -120,6 +120,19 @@ TOOL_SPECS = [
                     "description": "Department to filter by, e.g. 'Engineering'. Leave blank to list everyone.",
                 }
             },
+        },
+    },
+    {
+        "name": "get_direct_reports",
+        "description": "List the employees who report directly to a given manager. Use this "
+        "for questions like 'who reports to X' or 'what is X's team' - NOT for looking up "
+        "a single employee's own manager (use get_employee_info for that).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "manager_name": {"type": "string", "description": "The manager's name."}
+            },
+            "required": ["manager_name"],
         },
     },
     {
@@ -380,7 +393,29 @@ class AssistantEngine:
                               "title of", "location of", "who works"]
         report_keywords = ["report", "summary", "headcount", "how many employees", "stats", "statistics"]
 
-        if any(k in q_lower for k in report_keywords):
+        # Checked FIRST and specifically: "reports to" / "direct reports" contains the
+        # substring "report", so it must be intercepted before the generic report_keywords
+        # check below, or it wrongly triggers a company-wide report instead of a lookup.
+        reports_to_match = re.search(
+            r"(?:reports?\s+to|direct\s+reports\s+of|who\s+works\s+for)\s+([A-Za-z]+(?:\s[A-Za-z]+)?)",
+            q, re.IGNORECASE,
+        )
+        if reports_to_match:
+            manager_name = reports_to_match.group(1).strip()
+            action_taken = "get_direct_reports"
+            action_result = execute_tool("get_direct_reports", {"manager_name": manager_name})
+            if action_result.get("found"):
+                names = ", ".join(f"{r['name']} ({r['title']})" for r in action_result["direct_reports"])
+                answer = (
+                    f"{action_result['direct_report_count']} employee(s) report to "
+                    f"{action_result['manager']}: {names or 'none'}."
+                    if action_result["direct_report_count"]
+                    else f"No one currently reports to {action_result['manager']}."
+                )
+            else:
+                answer = action_result.get("message", f"I couldn't find a manager matching '{manager_name}'.")
+
+        elif any(k in q_lower for k in report_keywords):
             dept_match = re.search(r"(?:for|in)\s+([A-Za-z ]+?)(?:\s+department)?[\?\.]?$", q, re.IGNORECASE)
             department = dept_match.group(1).strip() if dept_match else ""
             action_taken = "generate_report"
@@ -402,10 +437,13 @@ class AssistantEngine:
 
         elif any(k in q_lower for k in employee_keywords) or self._has_unresolved_pronoun(q_lower):
             name = self._extract_name(q)
-            if not name or name.strip().lower() == q.strip().lower():
-                # No explicit name found (e.g. "What department does he work in?") -
-                # fall back to whichever employee was last discussed in this session.
-                name = self._last_employee_by_session.get(session_id, "")
+            if not name:
+                # Only fall back to the last-discussed employee for genuine pronoun
+                # references ("what's his email") - NOT when we simply failed to find
+                # a name, or unrelated names (e.g. "Who is Bob") would silently return
+                # whoever was last looked up instead of a clean "not found".
+                if self._has_unresolved_pronoun(q_lower):
+                    name = self._last_employee_by_session.get(session_id, "")
 
             action_taken = "get_employee_info"
             action_result = get_employee_info(name=name) if name else {"found": False}
@@ -417,11 +455,11 @@ class AssistantEngine:
                     w in q_lower for w in ["email", "phone", "contact", "location", "title"]
                 )
                 if asking_manager_only:
-                    answer = f"{emp['name']}'s manager is {emp.get('manager', 'not on file')}."
+                    answer = f"{emp['name']}'s manager is {emp.get('manager') or 'not on file (top of org chart)'}."
                 else:
                     answer = (
                         f"{emp['name']} is a {emp['title']} in {emp['department']}, "
-                        f"reporting to {emp.get('manager', 'N/A')}. "
+                        f"reporting to {emp.get('manager') or 'no one (top of org chart)'}. "
                         f"Email: {emp['email']}, Phone: {emp['phone']}, Location: {emp['location']}."
                     )
             else:
@@ -482,13 +520,26 @@ class AssistantEngine:
 
     @staticmethod
     def _extract_name(question: str) -> str:
-        # crude but effective for demo purposes: capitalized word pairs
+        # Most reliable: two consecutive capitalized words, e.g. "John Smith".
         matches = re.findall(r"\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)\b", question)
         if matches:
             return matches[0]
-        # fallback: text after "of" e.g. "email of john smith"
-        m = re.search(r"of\s+([A-Za-z ]+)", question, re.IGNORECASE)
-        return m.group(1).strip() if m else question
+
+        # "of NAME" / "for NAME" - may be a single first name, e.g. "email of Priya".
+        m = re.search(r"(?:of|for)\s+([A-Z][a-z]+)\b", question)
+        if m:
+            return m.group(1).strip()
+
+        # "who is NAME" / "is NAME" - single capitalized word, e.g. "Who is Bob".
+        m = re.search(r"\bis\s+([A-Z][a-z]+)\b", question)
+        if m:
+            return m.group(1).strip()
+
+        # Genuine failure - return empty, NOT the raw question. Returning the
+        # question here previously caused a bug: callers compared the "extracted
+        # name" against the question and, on failure, silently substituted a
+        # cached employee from a previous turn instead of reporting "not found".
+        return ""
 
 
 engine = AssistantEngine()
