@@ -26,6 +26,7 @@ class AskResponse(BaseModel):
     action_taken: Optional[str] = None
     action_result: Optional[dict] = None
     mode: str
+    provider: Optional[str] = None
     session_id: str
 
 
@@ -41,7 +42,13 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "healthy", "llm_connected": engine.client is not None}
+    return {
+        "status": "healthy",
+        "llm_connected": engine.gemini_client is not None or engine.anthropic_client is not None,
+        "active_provider": engine.active_provider,
+        "gemini_connected": engine.gemini_client is not None,
+        "anthropic_connected": engine.anthropic_client is not None,
+    }
 
 
 @app.post("/ask", response_model=AskResponse)
@@ -61,6 +68,7 @@ def ask(payload: AskRequest):
         action_taken=result.get("action_taken"),
         action_result=result.get("action_result"),
         mode=result.get("mode", "unknown"),
+        provider=result.get("provider"),
         session_id=session_id,
     )
 

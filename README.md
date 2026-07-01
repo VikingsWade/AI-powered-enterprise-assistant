@@ -3,9 +3,14 @@
 An AI-powered internal assistant exposed as a single FastAPI endpoint,
 `POST /ask`. It answers general questions and performs three business
 actions — **create a support ticket**, **look up employee info**, and
-**generate a report** — using Claude's tool-calling to decide *when* and
+**generate a report** — using an LLM's tool-calling to decide *when* and
 *how* to invoke them, with a rule-based fallback so the API never hard-fails
-if the LLM is unreachable.
+if no LLM is reachable.
+
+The primary LLM provider is **Gemini** (`google-genai` SDK), chosen because
+Google's free tier requires no credit card and gives ~1,500 requests/day on
+Flash — so anyone can clone this repo and run the full LLM tool-calling path
+for $0. Claude (Anthropic) is wired in as an optional secondary provider.
 
 ## 1. Architecture
 
@@ -19,20 +24,23 @@ FastAPI (app/main.py)
 AssistantEngine.ask()  (app/llm_service.py)
   │  2. load last N turns from ConversationMemory (app/memory.py)
   │
-  ├── If ANTHROPIC_API_KEY set ──────────────────────────────────┐
-  │      Claude (claude-sonnet-4-6) + 3 tool schemas              │
-  │      (create_ticket / get_employee_info / generate_report)    │
-  │      Model decides: answer directly, ask a clarifying         │
-  │      question, or call a tool with structured arguments.      │
-  │      -> execute_tool() runs it against mock JSON data          │
-  │      -> tool result sent back to Claude to compose final reply│
-  │                                                                 │
-  └── Else, or if the API call throws ─────────────────────────────┘
+  ├── 1. PRIMARY: If GEMINI_API_KEY set ────────────────────────────┐
+  │      Gemini (gemini-2.5-flash, google-genai SDK) + 3 tool schemas│
+  │      (create_ticket / get_employee_info / generate_report)       │
+  │      Model decides: answer directly, ask a clarifying            │
+  │      question, or call a tool with structured arguments.         │
+  │      -> execute_tool() runs it against mock JSON data             │
+  │      -> tool result sent back to Gemini to compose final reply   │
+  │                                                                    │
+  ├── 2. SECONDARY: If Gemini absent/fails, and ANTHROPIC_API_KEY set─┤
+  │      Same flow via Claude (claude-sonnet-4-6), same tool schemas  │
+  │                                                                    │
+  └── 3. TERTIARY: If neither LLM reachable ───────────────────────────┘
          rule-based fallback: keyword intent classification +
          regex field extraction, same 3 actions, degraded NLU
   │
   ▼
-Response: { answer, action_taken, action_result, mode, session_id }
+Response: { answer, action_taken, action_result, mode, provider, session_id }
 ```
 
 **Business actions / mock data** (`app/tools.py`, `data/*.json`):
@@ -50,7 +58,7 @@ like `if "ticket" in question.lower(): create_ticket(...)`. That approach:
 - has no way to ask a clarifying question when information is missing.
 
 **What I changed:** the question (plus recent conversation history) is sent
-to Claude along with three JSON-schema tool definitions. Claude decides,
+to an LLM along with three JSON-schema tool definitions. The model decides,
 based on meaning rather than keywords, whether a tool is needed and returns
 typed, validated arguments for it. The result:
 
@@ -62,17 +70,25 @@ typed, validated arguments for it. The result:
   is missing — this doubles as request-validation at the semantic level.
 - Adding a new business action is just adding one more tool schema + one
   more Python function — no branching logic to maintain.
-- The tool result is fed back to Claude, which composes a natural final
+- The tool result is fed back to the model, which composes a natural final
   answer instead of returning raw JSON to the user.
 
+**Multi-provider, not single-vendor:** the three tool schemas are defined
+once (`TOOL_SPECS` in `app/llm_service.py`) and translated into whichever
+shape each provider's SDK wants — Gemini's `function_declarations` and
+Claude's `input_schema`. This means the tool-calling logic isn't locked to
+one vendor's API, and it's what makes the three-tier fallback in the
+architecture diagram above possible: Gemini first (free), Claude second
+(if configured), rule-based logic last (always available).
+
 I additionally layered **error handling / fallback logic** on top (see
-`AssistantEngine.ask`): if the Anthropic client isn't configured, or the API
-call throws for any reason (auth, network, rate limit), the endpoint falls
-back to a small rule-based classifier that covers the same three actions.
-This means `/ask` never 500s due to an upstream LLM outage, and it's also
-what lets this whole project run and be graded with zero external API
-dependencies (see Test Inputs below — both were run with no API key
-configured, purely through the fallback path).
+`AssistantEngine.ask`): if neither LLM client is configured, or an API call
+throws for any reason (auth, network, rate limit), the endpoint falls back a
+tier — down to a small rule-based classifier that covers the same three
+actions if both LLMs are unavailable. This means `/ask` never 500s due to an
+upstream LLM outage, and it's also what lets this whole project run and be
+graded with zero external API dependencies (see Test Inputs below — both
+were run with no API key configured, purely through the fallback path).
 
 ## 3. Guardrails (bonus, `app/guardrails.py`)
 
@@ -131,7 +147,9 @@ python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
 # optional — without this, the API runs fully functional in fallback mode
-cp .env.example .env   # then add your ANTHROPIC_API_KEY
+cp .env.example .env
+# then add your GEMINI_API_KEY (free, no credit card: https://aistudio.google.com/apikey)
+# ANTHROPIC_API_KEY is optional and only used as a secondary provider
 
 uvicorn app.main:app --reload
 # -> http://localhost:8000/docs for interactive Swagger UI
@@ -148,15 +166,16 @@ python test_client.py
 1. Push this folder to a new GitHub repo.
 2. On [render.com](https://render.com) → New → Blueprint → connect the repo
    (it will read `render.yaml` automatically).
-3. Add `ANTHROPIC_API_KEY` as an environment variable in the Render
-   dashboard (optional — works without it).
+3. Add `GEMINI_API_KEY` (and optionally `ANTHROPIC_API_KEY`) as environment
+   variables in the Render dashboard — both are optional, the API works
+   without them via the rule-based fallback.
 4. Deploy. Render gives you a free `https://<name>.onrender.com` URL.
 
 **Option B — Railway.app:** New Project → Deploy from GitHub repo → it
-auto-detects the `Dockerfile` → add `ANTHROPIC_API_KEY` env var → deploy.
+auto-detects the `Dockerfile` → add `GEMINI_API_KEY` env var → deploy.
 
 **Option C — Fly.io:** `fly launch` (detects the Dockerfile), then
-`fly secrets set ANTHROPIC_API_KEY=...` and `fly deploy`.
+`fly secrets set GEMINI_API_KEY=...` and `fly deploy`.
 
 All three have free tiers sufficient for a demo API.
 
@@ -168,6 +187,12 @@ All three have free tiers sufficient for a demo API.
   outside its keyword lists. I kept both because the assignment values a
   working end-to-end demo over an assistant that's fully offline if the
   API key is missing/rate-limited.
+- **Free tier vs. best-in-class model:** Gemini Flash is the primary
+  provider specifically because it's free with no credit card, which
+  matters for a project meant to be easy to clone and grade — but it's not
+  necessarily the strongest model available. Claude is wired in as a
+  same-schema secondary provider for anyone who wants to trade the free
+  tier for a different model's tool-calling quality.
 - **Simplicity vs. scalability:** conversation memory is an in-process
   Python dict. It's trivial to reason about and needs zero infra, but it's
   lost on restart and won't work across multiple instances behind a load
@@ -184,7 +209,8 @@ All three have free tiers sufficient for a demo API.
 enterprise-assistant/
 ├── app/
 │   ├── main.py          # FastAPI app, /ask endpoint
-│   ├── llm_service.py   # Claude tool-calling + fallback (core AI workflow)
+│   ├── llm_service.py   # Gemini (primary) + Claude (secondary) tool-calling
+│   │                     # + rule-based fallback (core AI workflow)
 │   ├── tools.py          # business actions against mock data
 │   ├── memory.py          # conversation memory
 │   └── guardrails.py     # request validation
