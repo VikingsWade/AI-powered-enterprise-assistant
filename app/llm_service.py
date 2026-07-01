@@ -39,7 +39,7 @@ from app.memory import memory
 
 MODEL = "claude-sonnet-4-6"
 
-SYSTEM_PROMPT = """You are an internal enterprise assistant
+SYSTEM_PROMPT = """You are an internal enterprise assistant.
 You can answer general questions and, when appropriate, take one of these
 business actions using the tools available to you:
   - create_ticket: file an IT/HR/ops support ticket
@@ -109,6 +109,7 @@ TOOLS = [
 class AssistantEngine:
     def __init__(self):
         self.client = None
+        self._last_employee_by_session = {}  # crude pronoun-resolution cache for fallback mode
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if api_key:
             try:
@@ -202,7 +203,9 @@ class AssistantEngine:
         ticket_keywords = ["ticket", "broken", "broke", "not working", "issue", "problem", "crash",
                             "crashed", "outage", "down", "error", "help me fix", "vpn", "access"]
         employee_keywords = ["employee", "who is", "contact", "phone number", "email of",
-                              "manager of", "department of", "reach"]
+                              "manager of", "department of", "reach", "tell me about",
+                              "info about", "information about", "details about",
+                              "email address", "his email", "her email", "his phone", "her phone"]
         report_keywords = ["report", "summary", "headcount", "how many employees", "stats", "statistics"]
 
         if any(k in q_lower for k in report_keywords):
@@ -216,12 +219,19 @@ class AssistantEngine:
                 f"{action_result['open_tickets']} open ticket(s) out of {action_result['total_tickets']} total."
             )
 
-        elif any(k in q_lower for k in employee_keywords):
+        elif any(k in q_lower for k in employee_keywords) or self._has_unresolved_pronoun(q_lower):
             name = self._extract_name(q)
+            if not name or name.strip().lower() == q.strip().lower():
+                # No explicit name found (e.g. "What department does he work in?") -
+                # fall back to whichever employee was last discussed in this session.
+                name = self._last_employee_by_session.get(session_id, "")
+
             action_taken = "get_employee_info"
-            action_result = get_employee_info(name=name)
+            action_result = get_employee_info(name=name) if name else {"found": False}
+
             if action_result.get("found"):
                 emp = action_result["employee"]
+                self._last_employee_by_session[session_id] = emp["name"]
                 answer = (
                     f"{emp['name']} is a {emp['title']} in {emp['department']}. "
                     f"Email: {emp['email']}, Phone: {emp['phone']}, Location: {emp['location']}."
@@ -271,6 +281,15 @@ class AssistantEngine:
         if error:
             result["fallback_reason"] = error
         return result
+
+    @staticmethod
+    def _has_unresolved_pronoun(q_lower: str) -> bool:
+        pronouns = [" he ", " him ", " his ", " she ", " her ", " they ", " them ", " their "]
+        padded = f" {q_lower} "
+        return any(p in padded for p in pronouns) and any(
+            w in q_lower for w in ["department", "email", "phone", "manager", "office",
+                                    "location", "title", "role", "work in", "reach"]
+        )
 
     @staticmethod
     def _extract_name(question: str) -> str:
